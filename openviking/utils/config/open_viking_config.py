@@ -10,6 +10,7 @@ from threading import Lock
 from pydantic import BaseModel, Field
 
 from .embedding_config import EmbeddingConfig
+from .notebooklm_config import NotebookLMConfig
 from .rerank_config import RerankConfig
 from .storage_config import StorageConfig
 from .vlm_config import VLMConfig
@@ -33,6 +34,22 @@ class OpenVikingConfig(BaseModel):
 
     storage: StorageConfig = Field(
         default_factory=lambda: StorageConfig(), description="Storage configuration"
+    )
+
+    storage_backend: str = Field(
+        default="vikingdb",
+        description=(
+            "Storage backend type: 'vikingdb' for vector search or "
+            "'notebooklm' for semantic search via NotebookLM"
+        ),
+    )
+
+    notebooklm: Optional[NotebookLMConfig] = Field(
+        default=None,
+        description=(
+            "NotebookLM configuration for semantic storage backend. "
+            "Required when storage_backend='notebooklm'."
+        ),
     )
 
     embedding: EmbeddingConfig = Field(

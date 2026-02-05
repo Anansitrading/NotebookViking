@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Beijing Volcano Engine Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
 from .embedding_config import EmbeddingConfig
+from .notebooklm_config import NotebookLMConfig
 from .open_viking_config import (
     OpenVikingConfig,
     OpenVikingConfigSingleton,
@@ -32,6 +33,7 @@ from .parser_config import (
 __all__ = [
     "AGFSConfig",
     "EmbeddingConfig",
+    "NotebookLMConfig",
     "OpenVikingConfig",
     "OpenVikingConfigSingleton",
     "RerankConfig",

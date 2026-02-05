@@ -210,12 +210,30 @@ class AsyncOpenViking:
 
         # Create single context collection
         await init_context_collection(self._vikingdb_manager)
+
+        # Determine storage backend
+        semantic_backend = None
+        vector_store = self._vikingdb_manager
+
+        if config.storage_backend == "notebooklm":
+            # Use NotebookLM for semantic search
+            from openviking.storage import NotebookLMBackend
+
+            if not config.notebooklm:
+                raise ValueError(
+                    "NotebookLM backend requires 'notebooklm' configuration to be set"
+                )
+            semantic_backend = NotebookLMBackend(config.notebooklm)
+            vector_store = None  # Don't use vector store when NotebookLM is primary
+            logger.info("Using NotebookLM semantic backend for search")
+
         # Initialize VikingFS (singleton)
         self._viking_fs = init_viking_fs(
             agfs_url=self._agfs_url or "http://localhost:8080",
             query_embedder=self._embedder,
             rerank_config=config.rerank,
-            vector_store=self._vikingdb_manager,
+            vector_store=vector_store,
+            semantic_backend=semantic_backend,
             timeout=config.storage.agfs.timeout,
         )
 

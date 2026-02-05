@@ -63,6 +63,7 @@ def init_viking_fs(
     query_embedder: Optional[Any] = None,
     rerank_config: Optional["RerankConfig"] = None,
     vector_store: Optional["VikingDBInterface"] = None,
+    semantic_backend: Optional["VikingDBInterface"] = None,
     timeout: int = 10,
 ) -> "VikingFS":
     """Initialize VikingFS singleton.
@@ -71,8 +72,14 @@ def init_viking_fs(
         agfs_url: AGFS service URL
         query_embedder: Embedder instance
         rerank_config: Rerank configuration
-        vector_store: Vector store instance
+        vector_store: Vector store instance (VikingDB for vector search)
+        semantic_backend: Semantic storage backend (NotebookLM for semantic search)
         timeout: Request timeout in seconds
+
+    Note:
+        If semantic_backend is provided, find() will route to it for semantic
+        search instead of using vector_store. This enables NotebookLM-based
+        semantic understanding without vector embeddings.
     """
     global _instance
     _instance = VikingFS(
@@ -80,6 +87,7 @@ def init_viking_fs(
         query_embedder=query_embedder,
         rerank_config=rerank_config,
         vector_store=vector_store,
+        semantic_backend=semantic_backend,
         timeout=timeout,
     )
     return _instance
@@ -101,6 +109,13 @@ class VikingFS:
     APIs are divided into two categories:
     - AGFS basic commands (direct forwarding): read, ls, write, mkdir, rm, mv, grep, stat
     - VikingFS specific capabilities: abstract, overview, find, search, relations, link, unlink
+
+    Supports two storage backends:
+    - vector_store: VikingDB for vector similarity search
+    - semantic_backend: NotebookLM for semantic search (optional)
+
+    When semantic_backend is set, find() routes queries to NotebookLM's
+    notebook_query instead of vector similarity search.
     """
 
     def __init__(
@@ -109,6 +124,7 @@ class VikingFS:
         query_embedder: Optional[Any] = None,
         rerank_config: Optional["RerankConfig"] = None,
         vector_store: Optional["VikingDBInterface"] = None,
+        semantic_backend: Optional["VikingDBInterface"] = None,
         timeout: int = 10,
     ):
         try:
@@ -122,7 +138,9 @@ class VikingFS:
         self.query_embedder = query_embedder
         self.rerank_config = rerank_config
         self.vector_store = vector_store
-        logger.info(f"[VikingFS] Initialized with agfs_url={agfs_url}")
+        self.semantic_backend = semantic_backend
+        backend_info = "notebooklm" if semantic_backend else "vector"
+        logger.info(f"[VikingFS] Initialized with agfs_url={agfs_url}, backend={backend_info}")
 
     # ========== AGFS Basic Commands ==========
 
@@ -273,6 +291,10 @@ class VikingFS:
     ):
         """Semantic search.
 
+        Supports two backends:
+        - If semantic_backend is set, routes to NotebookLM for semantic search
+        - Otherwise, uses vector store with embeddings and reranking
+
         Args:
             query: Search query
             target_uri: Target directory URI
@@ -285,6 +307,17 @@ class VikingFS:
         """
         from openviking.retrieve import ContextType, FindResult, HierarchicalRetriever, TypedQuery
 
+        # Route to NotebookLM if semantic_backend is configured
+        if self.semantic_backend:
+            return await self._find_via_notebooklm(
+                query=query,
+                target_uri=target_uri,
+                limit=limit,
+                score_threshold=score_threshold,
+                filter=filter,
+            )
+
+        # Original vector search logic
         if not self.rerank_config:
             raise RuntimeError("rerank_config is required for find")
 
@@ -334,6 +367,103 @@ class VikingFS:
             resources=resources,
             skills=skills,
         )
+
+    async def _find_via_notebooklm(
+        self,
+        query: str,
+        target_uri: str = "",
+        limit: int = 10,
+        score_threshold: Optional[float] = None,
+        filter: Optional[Dict] = None,
+    ):
+        """Semantic search via NotebookLM backend.
+
+        Uses NotebookLM's notebook_query for semantic understanding
+        instead of vector similarity search.
+
+        Args:
+            query: Search query
+            target_uri: Target directory URI
+            limit: Return count
+            score_threshold: Score threshold
+            filter: Metadata filter
+
+        Returns:
+            FindResult
+        """
+        from openviking.retrieve import ContextType, FindResult, MatchedContext
+
+        # Map target_uri to collection name
+        collection = self._uri_to_collection(target_uri) if target_uri else "context"
+
+        # Build filter with query text
+        search_filter = {"query": query}
+        if filter:
+            search_filter.update(filter)
+
+        # Add URI prefix filter if target_uri specified
+        if target_uri:
+            search_filter["uri_prefix"] = target_uri
+
+        # Perform semantic search
+        results = await self.semantic_backend.search(
+            collection=collection,
+            query_vector=None,  # NotebookLM doesn't use vectors
+            filter=search_filter,
+            limit=limit,
+        )
+
+        # Convert to FindResult format
+        memories, resources, skills = [], [], []
+        context_type = self._infer_context_type(target_uri) if target_uri else ContextType.RESOURCE
+
+        for result in results:
+            # Apply score threshold if specified
+            score = result.get("_score", 1.0)
+            if score_threshold and score < score_threshold:
+                continue
+
+            # Create MatchedContext from result
+            ctx = MatchedContext(
+                uri=result.get("uri", ""),
+                content=result.get("content", ""),
+                context_type=context_type,
+                score=score,
+                metadata={
+                    "title": result.get("title", ""),
+                    "tier": result.get("tier", "L1"),
+                },
+            )
+
+            # Categorize by context_type
+            result_context_type = result.get("context_type", "resource")
+            if result_context_type == "memory":
+                memories.append(ctx)
+            elif result_context_type == "skill":
+                skills.append(ctx)
+            else:
+                resources.append(ctx)
+
+        return FindResult(
+            memories=memories,
+            resources=resources,
+            skills=skills,
+        )
+
+    def _uri_to_collection(self, uri: str) -> str:
+        """Map URI to collection name.
+
+        Args:
+            uri: Viking URI (e.g., viking://resources/project-x)
+
+        Returns:
+            Collection name (e.g., "resources")
+        """
+        # viking://resources/project-x -> resources
+        if uri.startswith("viking://"):
+            parts = uri[9:].split("/")
+            return parts[0] if parts else "context"
+        return "context"
 
     async def search(
         self,

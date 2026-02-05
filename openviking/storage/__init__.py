@@ -12,6 +12,7 @@ from openviking.storage.vikingdb_interface import (
     VikingDBInterface,
 )
 
+from openviking.storage.notebooklm_backend import NotebookLMBackend
 from openviking.storage.viking_vector_index_backend import VikingVectorIndexBackend
 from openviking.storage.vikingdb_manager import VikingDBManager
 from openviking.storage.queuefs import QueueManager, get_queue_manager, init_queue_manager
@@ -32,7 +33,8 @@ __all__ = [
     "DuplicateKeyError",
     "ConnectionError",
     "SchemaError",
-    # Backend
+    # Backends
+    "NotebookLMBackend",
     "VikingVectorIndexBackend",
     "VikingDBManager",
     # QueueFS
