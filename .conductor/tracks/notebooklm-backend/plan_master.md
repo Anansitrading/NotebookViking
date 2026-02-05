@@ -175,4 +175,21 @@ claude
 **Track ID:** notebooklm-backend
 **Plan Version:** 1.1
 **Last Updated:** 2026-02-05
-**Status:** Implementation Complete (4/5 tasks done, integration tests pending)
+**Status:** Implementation Complete - INTEGRATION FIXED (4/5 tasks done, integration tests pending)
+
+## Integration Fix (2026-02-05)
+
+Previous implementation assumed non-existent `NotebookLMClient` interface. Fixed by:
+
+1. **VERIFIED** actual API via `~/.local/share/pipx/venvs/notebooklm-mcp-server/bin/python`
+2. **CHANGED** from `NotebookLMClient()` to `get_client()` from `notebooklm_mcp.server`
+3. **CONFIRMED** method signatures match reality:
+   - `list_notebooks(debug=False) -> list[Notebook]`
+   - `create_notebook(title='') -> Notebook | None`
+   - `delete_notebook(notebook_id) -> bool`
+   - `get_notebook(notebook_id) -> dict | None`
+   - `add_text_source(notebook_id, text, title='Pasted Text') -> dict | None`
+   - `query(notebook_id, query_text, source_ids=None, conversation_id=None, timeout=120.0) -> dict | None`
+   - `delete_source(source_id) -> bool`
+
+**Verification tests passed:** All 7 methods tested via subprocess to pipx venv
